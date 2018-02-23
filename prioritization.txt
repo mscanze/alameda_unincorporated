@@ -46,12 +46,14 @@ create table generated.proj_score(
 	total_score float,
 	rank float);
 
+
+
 insert into generated.proj_score (geom, proj_num, proj_length_mi) 	
 select 
 	st_multi(st_union(geom)),
 	proj_num2,
 	proj_length
-from generated.tdg_network_proj
+from generated.tdg_network_proj -----tdg_network_proj is a version of tdg_network that is dissolved (in QGIS) by bike facility type and project number
 where proj_num2 is not null
 group by proj_num2, proj_length
 ;
@@ -439,7 +441,25 @@ add column rank float;
 update generated.tdg_network_proj a
 set rank = b.rank
 from generated.proj_score b
-where a.proj_num2 = b.proj_num; 
+where a.proj_num2 = b.proj_num;
+
+--update tdg_network with project ranking and total_score
+alter table generated.tdg_network
+add column total_score float;
+
+update generated.tdg_network a
+set total_score = b.total_score
+from generated.proj_score b
+where a.proj_num2 = b.proj_num;
+alter table generated.tdg_network
+add column rank float;
+
+update generated.tdg_network a
+set rank = b.rank
+from generated.proj_score b
+where a.proj_num2 = b.proj_num;
+
+
 
 
   
