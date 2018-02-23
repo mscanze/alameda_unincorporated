@@ -301,7 +301,7 @@ UPDATE      generated.proj_score as p
   UPDATE      generated.proj_score as p
   SET         park_half = (
     SELECT    count(s.id) 
-    FROM      generated.proj_score p,
+    FROM      
 		generated.parks s
 		
     WHERE     ST_DWithin(p.geom, s.geom, 804.672)
@@ -328,14 +328,14 @@ UPDATE      generated.proj_score as p
   UPDATE      generated.proj_score as p
   SET         senior_half = (
     SELECT    count(s.id) 
-    FROM      generated.proj_score p,
+    FROM      
 		generated.library_senior s
 		
     WHERE     ST_DWithin(p.geom, s.geom, 804.672)
 	)
 	;
 -- lib/senior within mile
-	UPDATE      generated.proj_score as p
+UPDATE      generated.proj_score as p
   SET         senior_mile = (
     SELECT    count(s.id) 
     FROM      
@@ -370,7 +370,7 @@ UPDATE      generated.proj_score as p
 UPDATE      generated.proj_score as p
   SET         transit_count_quarter = (
     SELECT    count(s.id) 
-    FROM      generated.proj_score p,
+    FROM     
 		generated.transit s
 		
     WHERE     ST_DWithin(p.geom, s.geom, 402.336)
@@ -387,7 +387,7 @@ SET transit_score = CASE WHEN transit_count_quarter >0 then 3
   UPDATE      generated.proj_score as p
   SET         retail_quarter = (
     SELECT    count(s.id) 
-    FROM      generated.proj_score p,
+    FROM      
 		generated.retail_corridor s
 		
     WHERE     ST_DWithin(p.geom, s.geom, 402.336)
@@ -431,6 +431,15 @@ SET rank = t4.order
 FROM t4
 WHERE t4.id=p.proj_num
 ;
+
+--update tdg_network_proj with project ranking
+alter table generated.tdg_network_proj
+add column rank float;
+
+update generated.tdg_network_proj a
+set rank = b.rank
+from generated.proj_score b
+where a.proj_num2 = b.proj_num; 
 
 
   
