@@ -1,0 +1,520 @@
+﻿----pulling pertinant code from other examples
+
+--need to create a new table 
+
+drop table if exists generated.proj_score;
+
+create table generated.proj_score(
+	id SERIAL PRIMARY KEY,
+	proj_num float,
+	geom GEOMETRY(multilinestring, 26910),
+	proj_length_mi float,
+
+	facility_score float,
+	
+	crash_count_sev float,
+	crash_count_oth float,
+	crash_weight_mile float,
+	crash_tier float,
+	crash_score float,
+	
+	conn2existing float,
+	conn2existing_score float,
+	
+	conn2planned float,
+	conn2planned_score float,
+	
+
+	park_half float,
+	park_mile float,
+	senior_half float,
+	senior_mile float,
+	p_l_s_score float,
+
+	transit_count_quarter float,	
+	transit_score float,
+	
+	school_count_quarter float,
+	school_count_half float,
+	school_count_threequart float,
+	school_score float,
+	
+	retail_quarter float,
+	retail_score float,
+	
+	coc_score float,
+	total_score float,
+	rank float);
+
+insert into generated.proj_score (geom, proj_num, proj_length_mi) 	
+select 
+	st_multi(st_union(geom)),
+	proj_num2,
+	proj_length
+from generated.tdg_network_proj
+where proj_num2 is not null
+group by proj_num2, proj_length
+;
+
+--========================================================
+
+--   separation
+
+--=======================================================
+--take 'best' facility type and apply to all segments with same project number; need to do this in order to dissolve on just proj_num and NOT on facility type and avoid 
+-- duplicate proj_num
+with t5 as ( SELECT  d.proj_num2, max(d.rec) as best_rec
+		from ( select proj_num2,
+			CASE WHEN tdg_rec = 'shared use path' or tdg_rec = 'separated bike lane' then 4
+					WHEN tdg_rec = 'buffered bike lane'then 3
+					WHEN tdg_rec = 'bike lane' then 2
+					WHEN tdg_rec = 'bike boulevard' then 1
+					ELSE 0
+					END as rec
+					from generated.tdg_network_proj) d
+		group by d.proj_num2)
+				
+update generated.proj_score p
+set facility_score = t5.best_rec
+From t5
+where p.proj_num = t5.proj_num2; 
+
+
+
+
+
+--========================================================
+
+--   CRASHES
+
+--=======================================================
+
+--Count crashes within 300ft
+UPDATE generated.proj_score as p 
+SET crash_count_sev = (			-- severe crashes
+  SELECT count(id)
+  FROM collisions_2006_2016 as bc
+  WHERE ST_DWithin(p.geom, bc.geom, 91.44)
+  AND (bc.date_ like '%2009' or
+		bc.date_ like '%2010' or
+		bc.date_ like '%2011' or
+		bc.date_ like '%2012' or
+		bc.date_ like '%2013')
+  AND (bc.crashsev in (1,2)) 
+  AND (bc.biccol = 'Y' or bc.pedcol= 'Y')
+);
+
+
+UPDATE generated.proj_score as p 
+SET crash_count_oth = (			-- other crashes
+  SELECT count(id)
+  FROM collisions_2006_2016 as bc
+  WHERE ST_DWithin(p.geom, bc.geom, 91.44)  --300 feet = 91.44 meters
+  AND (bc.date_ like '%2009' or
+		bc.date_ like '%2010' or
+		bc.date_ like '%2011' or
+		bc.date_ like '%2012' or
+		bc.date_ like '%2013')
+  AND bc.crashsev in (3,4)
+  AND (bc.biccol = 'Y' or bc.pedcol= 'Y')
+);
+
+
+UPDATE    generated.proj_score
+SET       crash_count_sev = 0
+WHERE     crash_count_sev IS NULL
+;
+
+
+UPDATE    generated.proj_score
+SET       crash_count_oth = 0
+WHERE     crash_count_oth IS NULL
+;
+
+-- --calculate # crashes, weighted by severity, per mile
+ UPDATE generated.proj_score
+ SET crash_weight_mile = (5 * crash_count_sev) + (3* crash_count_oth)/proj_length_mi
+ ;
+
+
+-- --calculate tier of crash 
+
+UPDATE generated.proj_score
+SET crash_tier = CASE WHEN crash_weight_mile < 14 THEN 3
+			WHEN crash_weight_mile >=14 and crash_weight_mile <48 THEN 2
+			WHEN crash_weight_mile >=48 THEN 1
+			END;
+
+UPDATE generated.proj_score
+SET crash_score = CASE WHEN crash_weight_mile < 14 THEN 1
+			WHEN crash_weight_mile >=14 and crash_weight_mile <48 THEN 2
+			WHEN crash_weight_mile >=48 THEN 3
+			END;
+
+
+
+
+  --=======================================================================
+  --  Network Connectivity
+  -- --existing table is a table of all existing facilities in incorporated and unincorporated Alameda
+  --=======================================================================
+  --create dissolved existing facilities layer (dissolve by fac type only where touching) 
+--DROP TABLE IF EXISTS scratch.existing_dissolve; 
+--CREATE TABLE scratch.existing_dissolve ( 
+--    id SERIAL PRIMARY KEY, 
+--    geom geometry(multilinestring,3512) 
+--); 
+--INSERT INTO scratch.existing_dissolve (existing_fac, geom) 
+--SELECT      existing_bike_facility, 
+--            ST_CollectionExtract( 
+--                ST_SetSRID( 
+--                    unnest(ST_ClusterIntersecting(geom)), 
+--                    3512 
+--                ), 
+--                2   --linestrings 
+--            ) 
+--FROM        existing
+--WHERE       existing_bike_facility IS NOT NULL 
+--GROUP BY    existing_bike_facility; 
+
+--connections to existing facilities 
+with t1 as (
+select count(distinct e.id)  as num, 
+p.proj_num as id
+from generated.existing as e,
+generated.proj_score as p
+where st_crosses(p.geom, e.geom)
+or st_touches(p.geom, e.geom)
+group by p.proj_num)
+
+
+UPDATE generated.proj_score as p
+SET  conn2existing =  t1.num
+FROM t1 
+WHERE t1.id = p.proj_num;
+
+
+UPDATE generated.proj_score
+SET conn2existing = 0 
+WHERE conn2existing is null; 
+
+-- UPDATE generated.projects 
+-- SET conn2existing_per_mile = (conn2existing/project_lgth_mi); 
+
+--connections to planned projects 
+with t2 as (
+select count(distinct e.id)  as num, 
+p.proj_num as id
+from generated.planned as e,
+generated.proj_score as p
+where st_crosses(p.geom, e.geom)
+OR st_touches (p.geom, e.geom)
+group by p.proj_num)
+
+
+UPDATE generated.proj_score as p
+SET  conn2planned =  t2.num
+FROM t2 
+WHERE t2.id = p.proj_num;
+
+
+UPDATE generated.proj_score
+SET conn2planned = 0 
+WHERE conn2planned is null; 
+
+
+--conn2existing_score
+update generated.proj_score 
+SET conn2existing_score = CASE WHEN conn2existing >= 2 then 3
+				WHEN conn2existing <2 then 2
+				ELSE 0
+				END;
+--conn2planned_score
+update generated.proj_score 
+SET conn2planned_score = CASE WHEN conn2planned >= 2 then 3
+				WHEN conn2planned <2 then 2
+				ELSE 0
+				END;
+			
+
+
+  --=======================================================================
+  --  Schools
+  --=======================================================================
+ --quarter mile count
+  UPDATE      generated.proj_score as p
+  SET         school_count_quarter = (
+    SELECT    count(id)
+    FROM      generated.schools s
+    WHERE     ST_DWithin(p.geom, s.geom, 402.336)
+  );
+
+  
+ --greater than quarter, less than half mile count
+  UPDATE      generated.proj_score as p
+  SET         school_count_half = (
+    SELECT    count(id)
+    FROM      generated.schools s
+    WHERE     ST_DWithin(p.geom, s.geom, 804.672)
+	AND s.id NOT IN (
+		SELECT (id)
+		FROM      generated.schools s
+		WHERE     ST_DWithin(p.geom, s.geom, 402.336)
+		)
+  );
+
+--greater than half, less than 3/4
+UPDATE      generated.proj_score as p
+  SET         school_count_threequart = (
+    SELECT    count(id)
+    FROM      generated.schools s
+    WHERE     ST_DWithin(p.geom, s.geom, 1207.01)
+	AND s.id NOT IN (
+		SELECT (id)
+		FROM      generated.schools s
+		WHERE     ST_DWithin(p.geom, s.geom, 402.336)
+		)
+	AND s.id NOT IN (
+		SELECT (id)
+		FROM      generated.schools s
+		WHERE     ST_DWithin(p.geom, s.geom, 804.672)
+		)
+  );
+
+
+  -- school score
+
+  UPDATE generated.proj_score as p
+  SET school_score = CASE WHEN school_count_quarter >0 then 3
+			  WHEN school_count_half >0 and school_count_quarter =0 then 2
+			   WHEN school_count_threequart >0 and school_count_quarter =0 and school_count_half = 0 then 1
+			   ELSE 0
+
+			END;
+
+
+  --=======================================================================
+  --  Parks/Library/Senior Center half mi
+
+  --=======================================================================
+ --parks within half
+  UPDATE      generated.proj_score as p
+  SET         park_half = (
+    SELECT    count(s.id) 
+    FROM      generated.proj_score p,
+		generated.parks s
+		
+    WHERE     ST_DWithin(p.geom, s.geom, 804.672)
+	)
+	;
+-- parks within mile
+	UPDATE      generated.proj_score as p
+  SET         park_mile = (
+    SELECT    count(s.id) 
+    FROM      
+		generated.parks s
+		
+    WHERE     ST_DWithin(p.geom, s.geom, 1609.34)
+		AND s.id NOT IN (
+		SELECT (id)
+		FROM      generated.parks b
+		WHERE     ST_DWithin(p.geom, b.geom, 804.672)
+		)
+	)
+	;
+
+	
+--lib/senior within half
+  UPDATE      generated.proj_score as p
+  SET         senior_half = (
+    SELECT    count(s.id) 
+    FROM      generated.proj_score p,
+		generated.library_senior s
+		
+    WHERE     ST_DWithin(p.geom, s.geom, 804.672)
+	)
+	;
+-- lib/senior within mile
+	UPDATE      generated.proj_score as p
+  SET         senior_mile = (
+    SELECT    count(s.id) 
+    FROM      
+		generated.library_senior s
+		
+    WHERE     ST_DWithin(p.geom, s.geom, 1609.34)
+		AND s.id NOT IN (
+		SELECT (id)
+		FROM      generated.library_senior b
+		WHERE     ST_DWithin(p.geom, b.geom, 804.672)
+		)
+	)
+	;
+ 
+ 
+ --p_l_s_score
+ update generated.proj_score as p
+ set p_l_s_score = CASE WHEN senior_half > 0 or park_half > 0 then 3
+							WHEN (senior_mile >0 or park_mile >0) and senior_half =0 and park_half = 0 then 2
+							ELSE 0
+							END;						
+							
+ 
+ 
+ 
+ 
+  
+  
+--=======================================================================
+  --  Transit stops qua mi
+  --=======================================================================
+UPDATE      generated.proj_score as p
+  SET         transit_count_quarter = (
+    SELECT    count(s.id) 
+    FROM      generated.proj_score p,
+		generated.transit s
+		
+    WHERE     ST_DWithin(p.geom, s.geom, 402.336)
+	)
+	;
+	
+UPDATE generated.proj_score as p_l_s_score
+SET transit_score = CASE WHEN transit_count_quarter >0 then 3
+					ELSE 0
+					END;
+--=======================================================================
+  --  Retail corridors quart mi
+  --=======================================================================
+  UPDATE      generated.proj_score as p
+  SET         retail_quarter = (
+    SELECT    count(s.id) 
+    FROM      generated.proj_score p,
+		generated.retail_corridor s
+		
+    WHERE     ST_DWithin(p.geom, s.geom, 402.336)
+	)
+	;
+	
+UPDATE generated.proj_score as p_l_s_score
+SET retail_score = CASE WHEN retail_quarter >0 then 4
+					ELSE 0
+					END;
+  
+--=======================================================================
+  --  Intersects COC
+  --=======================================================================
+  UPDATE generated.proj_score p
+  SET coc_score = 4
+  FROM generated.communities_concern c
+  WHERE st_intersects(p.geom, c.geom);
+  
+  UPDATE generated.proj_score p
+  SET coc_score = 0
+  WHERE coc_score is null;
+
+
+--=======================================================================
+  --  Final Score
+  --=======================================================================  
+  
+
+  UPDATE generated.proj_score
+  SET total_score = facility_score + crash_score + 
+			conn2existing_score + conn2planned_score + 
+			p_l_s_score + transit_score + school_score+ retail_score;
+
+with t4 as (select dense_rank() over (order by total_score desc) as order, proj_num as id, total_score
+		from generated.proj_score as p
+		where proj_num is not null
+		order by total_score asc)
+UPDATE generated.proj_score as p
+SET rank = t4.order
+FROM t4
+WHERE t4.id=p.proj_num
+;
+
+
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  ---not sure if I really need the below stuff
+--===================================================
+  -- CREATE ALL PROJECTS TABLE
+  --===================================================
+
+ DROP TABLE IF EXISTS scratch.projects_all;
+ CREATE TABLE scratch.projects_all(
+               id SERIAL PRIMARY KEY,
+               geom GEOMETRY(POINT,2277),
+               type TEXT,
+               cluster TEXT,
+               cluster_id TEXT,
+               feature_id TEXT[],
+               full_street_name TEXT,
+               wiki_comments INT,
+               scaled_wiki_comments FLOAT,
+               crash_count INT,
+               scaled_crash_count FLOAT,
+               funclass_score INT,
+               scaled_funclass_score FLOAT,
+               safety_rating FLOAT,
+               scaled_safety_rating FLOAT,
+               priority_project INT,
+               scaled_priority_project FLOAT,
+               schools_half_mi INT,
+               scaled_schools_half_mi FLOAT,
+               students_served FLOAT,
+               scaled_students_served FLOAT,
+               free_reduced_pct_est FLOAT,
+               scaled_free_reduced_pct_est FLOAT,
+               avg_poverty_rate FLOAT,
+               scaled_poverty_rate FLOAT,
+               stakeholder_raw FLOAT,
+               -- stakeholder_score FLOAT,
+               safety_raw FLOAT,
+               -- safety_score FLOAT,
+               demand_raw FLOAT,
+               -- demand_score FLOAT,
+               equity_raw FLOAT,
+               -- equity_score FLOAT,
+               priority_raw FLOAT,
+               priority_100_scale FLOAT,
+               phase_1_priority_rank INT,
+               cluster_priority_rank TEXT
+ );
+
+ INSERT INTO   scratch.projects_all(
+                geom ,
+                type ,
+                cluster,
+                cluster_id ,
+                feature_id,
+                full_street_name ,
+                wiki_comments ,
+                crash_count ,
+                funclass_score ,
+                safety_rating ,
+                priority_project ,
+                schools_half_mi ,
+                students_served ,
+                free_reduced_pct_est ,
+                avg_poverty_rate
+  )
