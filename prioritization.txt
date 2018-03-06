@@ -1,4 +1,38 @@
-﻿----pulling pertinant code from other examples
+﻿
+drop table if exists tdg_network_proj;
+
+CREATE TABLE tdg_network_proj AS
+SELECT st_multi(st_union(geom)) as geom,
+	proj_num2,
+	tdg_rec
+FROM tdg_network
+GROUP by proj_num2, tdg_rec;
+
+
+--------------------------------------------------------------------------
+---------USE THIS BLOCK IF YOU NEED TO UPDATE length_mi and proj_length
+Alter table generated.tdg_network_proj
+add column length_mi float;
+
+
+Update generated.tdg_network_proj b
+SET length_mi= st_length(b.geom)/1609.34; 
+
+Alter table generated.tdg_network_proj
+add column proj_length float;
+
+
+with t1 as ( SELECT sum(length_mi) as length,
+		proj_num2 as proj
+		FROM generated.tdg_network_proj
+		GROUP BY proj_num2)
+update generated.tdg_network_proj b
+SET proj_length = t1. length
+FROM t1
+WHERE t1.proj = b.proj_num2;
+--------------------------------------------------------------
+--------------------------------------------------------------
+
 
 --need to create a new table 
 
@@ -407,7 +441,8 @@ SET retail_score = CASE WHEN retail_quarter >0 then 4
   UPDATE generated.proj_score p
   SET coc_score = 4
   FROM generated.communities_concern c
-  WHERE st_intersects(p.geom, c.geom);
+  WHERE st_intersects(p.geom, c.geom)
+  AND coc_flag_2 = 1;
   
   UPDATE generated.proj_score p
   SET coc_score = 0
@@ -422,7 +457,7 @@ SET retail_score = CASE WHEN retail_quarter >0 then 4
   UPDATE generated.proj_score
   SET total_score = facility_score + crash_score + 
 			conn2existing_score + conn2planned_score + 
-			p_l_s_score + transit_score + school_score+ retail_score;
+			p_l_s_score + transit_score + school_score+ retail_score +coc_score;
 
 with t4 as (select dense_rank() over (order by total_score desc) as order, proj_num as id, total_score
 		from generated.proj_score as p
@@ -451,6 +486,7 @@ update generated.tdg_network a
 set total_score = b.total_score
 from generated.proj_score b
 where a.proj_num2 = b.proj_num;
+
 alter table generated.tdg_network
 add column rank float;
 
@@ -475,75 +511,4 @@ where a.proj_num2 = b.proj_num;
   
   
   
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  ---not sure if I really need the below stuff
---===================================================
-  -- CREATE ALL PROJECTS TABLE
-  --===================================================
-
- DROP TABLE IF EXISTS scratch.projects_all;
- CREATE TABLE scratch.projects_all(
-               id SERIAL PRIMARY KEY,
-               geom GEOMETRY(POINT,2277),
-               type TEXT,
-               cluster TEXT,
-               cluster_id TEXT,
-               feature_id TEXT[],
-               full_street_name TEXT,
-               wiki_comments INT,
-               scaled_wiki_comments FLOAT,
-               crash_count INT,
-               scaled_crash_count FLOAT,
-               funclass_score INT,
-               scaled_funclass_score FLOAT,
-               safety_rating FLOAT,
-               scaled_safety_rating FLOAT,
-               priority_project INT,
-               scaled_priority_project FLOAT,
-               schools_half_mi INT,
-               scaled_schools_half_mi FLOAT,
-               students_served FLOAT,
-               scaled_students_served FLOAT,
-               free_reduced_pct_est FLOAT,
-               scaled_free_reduced_pct_est FLOAT,
-               avg_poverty_rate FLOAT,
-               scaled_poverty_rate FLOAT,
-               stakeholder_raw FLOAT,
-               -- stakeholder_score FLOAT,
-               safety_raw FLOAT,
-               -- safety_score FLOAT,
-               demand_raw FLOAT,
-               -- demand_score FLOAT,
-               equity_raw FLOAT,
-               -- equity_score FLOAT,
-               priority_raw FLOAT,
-               priority_100_scale FLOAT,
-               phase_1_priority_rank INT,
-               cluster_priority_rank TEXT
- );
-
- INSERT INTO   scratch.projects_all(
-                geom ,
-                type ,
-                cluster,
-                cluster_id ,
-                feature_id,
-                full_street_name ,
-                wiki_comments ,
-                crash_count ,
-                funclass_score ,
-                safety_rating ,
-                priority_project ,
-                schools_half_mi ,
-                students_served ,
-                free_reduced_pct_est ,
-                avg_poverty_rate
-  )
+ 
