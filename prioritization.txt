@@ -169,7 +169,7 @@ WHERE     crash_count_oth IS NULL
 
 -- --calculate # crashes, weighted by severity, per mile
  UPDATE generated.proj_score
- SET crash_weight_mile = (5 * crash_count_sev) + (3* crash_count_oth)/proj_length_mi
+ SET crash_weight_mile = ((5 * crash_count_sev) + (3* crash_count_oth))/proj_length_mi
  ;
 
 
@@ -186,6 +186,12 @@ SET crash_score = CASE WHEN crash_weight_mile < 14 THEN 1
 			WHEN crash_weight_mile >=14 and crash_weight_mile <48 THEN 2
 			WHEN crash_weight_mile >=48 THEN 3
 			END;
+
+UPDATE generated.proj_score
+SET crash_score = 0 
+WHERE crash_weight_mile = 0 
+;
+
 
 
 
@@ -271,7 +277,6 @@ SET conn2planned_score = CASE WHEN conn2planned >= 2 then 3
 				WHEN conn2planned <2 then 2
 				ELSE 0
 				END;
-			
 
 
   --=======================================================================
@@ -471,6 +476,7 @@ WHERE t4.id=p.proj_num
 
 --update tdg_network_proj with project ranking
 alter table generated.tdg_network_proj
+drop column if eixsts rank,
 add column rank float;
 
 update generated.tdg_network_proj a
@@ -480,6 +486,7 @@ where a.proj_num2 = b.proj_num;
 
 --update tdg_network with project ranking and total_score
 alter table generated.tdg_network
+drop column if exists total_score,
 add column total_score float;
 
 update generated.tdg_network a
@@ -488,6 +495,7 @@ from generated.proj_score b
 where a.proj_num2 = b.proj_num;
 
 alter table generated.tdg_network
+drop column if exists rank,
 add column rank float;
 
 update generated.tdg_network a
@@ -502,11 +510,7 @@ where a.proj_num2 = b.proj_num;
   
   
   
-  
-  
-  
-  
-  
+
   
   
   
