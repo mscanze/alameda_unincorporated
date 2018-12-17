@@ -128,16 +128,16 @@ WHERE     crash_count_oth IS NULL
 
 UPDATE generated.tdg_sidewalk_proj
 SET crash_tier = CASE WHEN crash_weight_mile < 14 THEN 3
-			WHEN crash_weight_mile >=14 and crash_weight_mile <48 THEN 2
-			WHEN crash_weight_mile >=48 THEN 1
+			WHEN crash_weight_mile >=10 and crash_weight_mile <21 THEN 2
+			WHEN crash_weight_mile >=21 THEN 1
 			END;
 
 
 
 UPDATE generated.tdg_sidewalk_proj
-SET crash_score = CASE WHEN crash_weight_mile < 14 THEN 1
-			WHEN crash_weight_mile >=14 and crash_weight_mile <48 THEN 2
-			WHEN crash_weight_mile >=48 THEN 3
+SET crash_score = CASE WHEN crash_weight_mile < 14 THEN 5
+			WHEN crash_weight_mile >=10 and crash_weight_mile <21 THEN 10
+			WHEN crash_weight_mile >=21 THEN 20
 			END;
 
 UPDATE generated.tdg_sidewalk_proj
@@ -195,9 +195,9 @@ UPDATE      generated.tdg_sidewalk_proj as p
   -- school score
 
   UPDATE generated.tdg_sidewalk_proj as p
-  SET school_score = CASE WHEN school_count_quarter >0 then 3
-			  WHEN school_count_half >0 and school_count_quarter =0 then 2
-			   WHEN school_count_threequart >0 and school_count_quarter =0 and school_count_half = 0 then 1
+  SET school_score = CASE WHEN school_count_quarter >0 then 50
+			  WHEN school_count_half >0 and school_count_quarter =0 then 20
+			   WHEN school_count_threequart >0 and school_count_quarter =0 and school_count_half = 0 then 10
 			   ELSE 0
 
 			END;
@@ -208,7 +208,7 @@ UPDATE      generated.tdg_sidewalk_proj as p
 ---add two points if there is at least one crash and school is within 1/4 mile
 
 UPDATE generated.tdg_sidewalk_proj
-SET crash_score = crash_score + 2.0
+SET crash_score = crash_score + 5.0
  WHERE (crash_count_sev >=1 OR crash_count_oth >= 1) AND school_count_quarter >0 
 ;
 
@@ -272,7 +272,7 @@ UPDATE      generated.tdg_sidewalk_proj as p
  
  --p_l_s_score
  update generated.tdg_sidewalk_proj as p
- set p_l_s_score = CASE WHEN senior_half > 0 or park_half > 0 then 3
+ set p_l_s_score = CASE WHEN senior_half > 0 or park_half > 0 then 4
 							WHEN (senior_mile >0 or park_mile >0) and senior_half =0 and park_half = 0 then 2
 							ELSE 0
 							END;						
@@ -311,7 +311,7 @@ UPDATE      generated.tdg_sidewalk_proj as p
 	;
  --gov office score
  update generated.tdg_sidewalk_proj as p
- set gov_score = CASE WHEN gov_count_eighth >0 THEN 5
+ set gov_score = CASE WHEN gov_count_eighth >0 THEN 4
 							WHEN gov_count_quarter > 0 then 2
 							ELSE 0
 							END;
@@ -329,7 +329,7 @@ UPDATE      generated.tdg_sidewalk_proj as p
 	;
 	
 UPDATE generated.tdg_sidewalk_proj as p_l_s_score
-SET transit_score = CASE WHEN transit_count_quarter >0 then 3
+SET transit_score = CASE WHEN transit_count_quarter >0 then 2
 					ELSE 0
 					END;
 --=======================================================================
@@ -346,7 +346,7 @@ SET transit_score = CASE WHEN transit_count_quarter >0 then 3
 	;
 	
 UPDATE generated.tdg_sidewalk_proj as p_l_s_score
-SET retail_score = CASE WHEN retail_quarter >0 then 4
+SET retail_score = CASE WHEN retail_quarter >0 then 3
 					ELSE 0
 					END;
   
@@ -354,7 +354,7 @@ SET retail_score = CASE WHEN retail_quarter >0 then 4
   --  Intersects COC
   --=======================================================================
   UPDATE generated.tdg_sidewalk_proj p
-  SET coc_score = 4
+  SET coc_score = 10
   FROM generated.communities_concern c
   WHERE st_intersects(p.geom, c.geom)
   AND coc_flag_2 = 1;
@@ -422,5 +422,5 @@ WHERE t4.id=p.id
     --and a.to = b.to
     --and a.from = b.from;
     
-select * from tdg_sidewalk_proj ORDER BY rank desc;
+select * from tdg_sidewalk_proj ORDER BY rank asc;
 
